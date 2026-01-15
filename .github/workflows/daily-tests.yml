@@ -1,9 +1,17 @@
-name: Daily tests (15:15 Europe/Zagreb)
+name: Daily tests (15:25 Europe/Zagreb)
 
 on:
+  push:
+    branches:
+      - main
   schedule:
-    - cron: '*/5 * * * *' # every 5 minutes (job will only run tests at 15:15 Europe/Zagreb)
-  workflow_dispatch: {}
+    - cron: '*/5 * * * *' # runs every 5 minutes; we check local time inside the job and only run at 15:25 Europe/Zagreb
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force run even if not 15:25 Europe/Zagreb'
+        required: false
+        default: 'false'
 
 env:
   TEST_COMMAND: npm test
@@ -20,28 +28,65 @@ jobs:
           echo "UTC: $(date -u)"
           echo "Europe/Zagreb: $(TZ=Europe/Zagreb date)"
 
-      - name: Proceed only at 15:15 Europe/Zagreb
+      - id: check-time
+        name: Proceed only at 15:25 Europe/Zagreb (or when forced/pushed)
+        env:
+          FORCE: ${{ github.event.inputs.force }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          # Always run on push events
+          if [ "$EVENT_NAME" = "push" ]; then
+            echo "Push event detected — will run tests."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if forced via workflow_dispatch
+          if [ "${FORCE:-false}" = "true" ]; then
+            echo "Force run requested via workflow_dispatch inputs"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For schedule events, check if it's 15:25 Europe/Zagreb
           HOUR=$(TZ=Europe/Zagreb date +%H)
           MIN=$(TZ=Europe/Zagreb date +%M)
           echo "Europe/Zagreb time: $HOUR:$MIN"
-          if [ "$HOUR" != "15" ] || [ "$MIN" != "15" ]; then
-            echo "Not 15:15 Europe/Zagreb — skipping tests."
-            exit 0
+          if [ "$HOUR" = "15" ] && [ "$MIN" = "25" ]; then
+            echo "It's 15:25 Europe/Zagreb — will run tests."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not 15:25 Europe/Zagreb — skipping tests."
+            echo "run=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "It's 15:15 Europe/Zagreb — running tests."
 
       - name: Setup Node.js
+        if: steps.check-time.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Install Playwright browsers
+        if: steps.check-time.outputs.run == 'true'
         run: npx playwright install --with-deps
 
-      - name: Run tests (auto-detect common setups)
+      - name: Run tests (use TEST_COMMAND if set, otherwise auto-detect)
+        if: steps.check-time.outputs.run == 'true'
         run: |
+          # If TEST_COMMAND is explicitly set (non-empty and different from default), run it first.
+          if [ -n "$TEST_COMMAND" ] && [ "$TEST_COMMAND" != "npm test" ]; then
+            echo "Running TEST_COMMAND: $TEST_COMMAND"
+            eval "$TEST_COMMAND"
+            exit_code=$?
+            if [ $exit_code -ne 0 ]; then
+              echo "TEST_COMMAND failed with exit code $exit_code"
+              exit $exit_code
+            fi
+            exit 0
+          fi
+
+          # Auto-detect common setups (fallback)
           if [ -f package.json ]; then
             echo "package.json found — installing and running npm test"
             npm ci
