@@ -89,7 +89,12 @@ jobs:
           # Auto-detect common setups (fallback)
           if [ -f package.json ]; then
             echo "package.json found — installing and running npm test"
-            npm ci
+            # Use npm ci if lock file exists, otherwise use npm install
+            if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+              npm ci
+            else
+              npm install
+            fi
             npm test
           elif command -v pytest >/dev/null 2>&1; then
             echo "pytest found — running pytest"
