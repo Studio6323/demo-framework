@@ -1,0 +1,59 @@
+name: Daily tests (15:15 Europe/Zagreb)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # every 5 minutes (job will only run tests at 15:15 Europe/Zagreb)
+  workflow_dispatch: {}
+
+env:
+  TEST_COMMAND: npm test
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show current UTC and Europe/Zagreb time
+        run: |
+          echo "UTC: $(date -u)"
+          echo "Europe/Zagreb: $(TZ=Europe/Zagreb date)"
+
+      - name: Proceed only at 15:15 Europe/Zagreb
+        run: |
+          HOUR=$(TZ=Europe/Zagreb date +%H)
+          MIN=$(TZ=Europe/Zagreb date +%M)
+          echo "Europe/Zagreb time: $HOUR:$MIN"
+          if [ "$HOUR" != "15" ] || [ "$MIN" != "15" ]; then
+            echo "Not 15:15 Europe/Zagreb — skipping tests."
+            exit 0
+          fi
+          echo "It's 15:15 Europe/Zagreb — running tests."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run tests (auto-detect common setups)
+        run: |
+          if [ -f package.json ]; then
+            echo "package.json found — installing and running npm test"
+            npm ci
+            npm test
+          elif command -v pytest >/dev/null 2>&1; then
+            echo "pytest found — running pytest"
+            pytest
+          elif [ -f Makefile ]; then
+            echo "Makefile found — running make test"
+            make test
+          else
+            echo "No recognized test command found. Set TEST_COMMAND env in workflow to override (default: npm test)."
+            echo "To override, set env: TEST_COMMAND: 'python -m pytest -q' (or your command) in the workflow file."
+            exit 1
+          fi
