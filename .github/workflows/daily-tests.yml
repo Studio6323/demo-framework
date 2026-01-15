@@ -65,7 +65,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # cache: 'npm' - commented out until package-lock.json is in repo
 
       - name: Install Playwright browsers
         if: steps.check-time.outputs.run == 'true'
